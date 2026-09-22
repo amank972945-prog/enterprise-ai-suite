@@ -1,4 +1,7 @@
 streamlit
-pandas
-langchain-groq
+groq
+langchain
+langchain-community
+chromadb
+pypdf
 
