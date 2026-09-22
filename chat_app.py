@@ -174,8 +174,10 @@ if st.session_state.logged_in:
                 st.markdown(prompt)
 
             with st.chat_message("assistant"):
-                try:
-                     llm = ChatGroq(groq_api_key="gsk_YOUR_ACTUAL_GROQ_KEY_HERE", model_name="llama3-8b-8192")
+                            try:
+                llm = ChatGroq(groq_api_key="gsk_YOUR_ACTUAL_GROQ_KEY_HERE", model_name="llama3-8b-8192")
+
+            
                     
                     
                     if doc_text:
