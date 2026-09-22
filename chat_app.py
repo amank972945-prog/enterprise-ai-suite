@@ -1,5 +1,6 @@
 import streamlit as st
-from langchain_ollama import OllamaLLM
+from langchain_groq import ChatGroq
+
 from pypdf import PdfReader
 import pandas as pd
 import io
@@ -174,7 +175,8 @@ if st.session_state.logged_in:
 
             with st.chat_message("assistant"):
                 try:
-                    llm = OllamaLLM(model=selected_model, num_predict=2048, temperature=0.7)
+                     llm = ChatGroq(groq_api_key="gsk_YOUR_ACTUAL_GROQ_KEY_HERE", model_name="llama3-8b-8192")
+                    
                     
                     if doc_text:
                         full_prompt = f"System: Provide a detailed, step-by-step response in {target_language}. If generating Python code, wrap it inside python ... .\nContext:\n{doc_text}\n\nQuestion: {prompt}"
