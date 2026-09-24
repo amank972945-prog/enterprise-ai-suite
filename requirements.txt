@@ -1,5 +1,8 @@
 streamlit
 pandas
 langchain-google-genai
+PyPDF2
+gTTS
+
 
 
