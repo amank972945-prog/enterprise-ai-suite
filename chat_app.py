@@ -8,10 +8,13 @@ from gTTS import gTTS
 import base64
 from langchain_google_genai import ChatGoogleGenerativeAI
 
+# Page Configuration
 st.set_page_config(page_title="Enterprise AI Suite Pro", page_icon="🤖", layout="wide")
 
+# API Key Retrieval
 GEMINI_API_KEY = st.secrets.get("GEMINI_API_KEY", os.environ.get("GEMINI_API_KEY", ""))
 
+# Initialize Session States
 if "authenticated" not in st.session_state:
     st.session_state["authenticated"] = False
 if "username" not in st.session_state:
@@ -21,6 +24,7 @@ if "messages" not in st.session_state:
 if "active_artifact" not in st.session_state:
     st.session_state["active_artifact"] = None
 
+# Helper Functions
 def extract_python_code(text):
     match = re.search(r"```python\n(.*?)\n```", text, re.DOTALL)
     return match.group(1) if match else None
@@ -51,6 +55,7 @@ def text_to_audio(text, lang_code='en'):
     except Exception:
         pass
 
+# Authentication Logic
 if not st.session_state["authenticated"]:
     st.title("🔐 Enterprise AI Suite Login")
     username_input = st.text_input("Username")
@@ -64,6 +69,7 @@ if not st.session_state["authenticated"]:
             st.error("Invalid credentials! Use admin / abc")
     st.stop()
 
+# Sidebar Layout
 st.sidebar.title(f"👤 User: {st.session_state['username']}")
 if st.sidebar.button("Logout"):
     st.session_state["authenticated"] = False
@@ -90,6 +96,7 @@ if uploaded_file is not None:
         scanned_doc_text = uploaded_file.read().decode("utf-8")
         st.sidebar.success("Text File Attached!")
 
+# Main UI Split (Chat + Code Sandbox)
 st.title("🤖 Enterprise AI Suite Pro")
 chat_col, artifact_col = st.columns([2, 1])
 
@@ -103,7 +110,7 @@ with chat_col:
 
     if prompt:
         if not GEMINI_API_KEY:
-            st.error("Gemini API Key missing! Set GEMINI_API_KEY in Streamlit Secrets.")[span_3](start_span)[span_3](end_span)
+            st.error("Gemini API Key missing! Set GEMINI_API_KEY in Streamlit Secrets.")
         else:
             st.session_state.messages.append({"role": "user", "content": prompt})
             with st.chat_message("user"):
