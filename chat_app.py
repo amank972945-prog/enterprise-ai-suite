@@ -1,116 +1,134 @@
-"""
-My AI Assistant - Cloud Version (uses Groq API, deployable on Streamlit Cloud)
-This version works on mobile/anywhere since the AI runs on Groq's servers, not your device.
-Requirements (put these in requirements.txt): streamlit, groq, langchain, langchain-community, chromadb, pypdf
-"""
-
 import streamlit as st
-import tempfile
-import os
-import json
-import uuid
-from groq import Groq
+import pandas as pd
+import datetime
+import re
+from langchain_google_genai import ChatGoogleGenerativeAI
 
-# ---------- CONFIG ----------
-MODEL_NAME = "llama-3.1-8b-instant"  # fast, free Groq model. Other option: "llama-3.3-70b-versatile" (smarter, slower)
-SYSTEM_PROMPT = "You are a helpful, friendly AI assistant. Respond in the same language the user writes in."
-CHATS_FILE = "chat_history.json"
+# App Configuration
+st.set_page_config(
+    page_title="Enterprise AI Suite",
+    page_icon="🤖",
+    layout="wide"
+)
 
-st.set_page_config(page_title="My AI Assistant", page_icon="🤖", layout="wide")
+# Replace with your actual Gemini API Key (Starts with AIzaSy...)
+GEMINI_API_KEY = "PASTE_YOUR_GEMINI_API_KEY_HERE"
 
-# ---------- GROQ CLIENT (reads API key from Streamlit secrets) ----------
-try:
-    client = Groq(api_key=st.secrets["GROQ_API_KEY"])
-except Exception:
-    st.error("Groq API key not found. Add GROQ_API_KEY in Streamlit Cloud's Secrets settings.")
+# Session State Initialization
+if "authenticated" not in st.session_state:
+    st.session_state["authenticated"] = False
+if "username" not in st.session_state:
+    st.session_state["username"] = ""
+if "messages" not in st.session_state:
+    st.session_state["messages"] = []
+if "query_count" not in st.session_state:
+    st.session_state["query_count"] = 0
+if "active_artifact" not in st.session_state:
+    st.session_state["active_artifact"] = None
+
+def extract_python_code(text):
+    match = re.search(r"```python\n(.*?)\n```", text, re.DOTALL)
+    return match.group(1) if match else None
+
+def execute_python_code(code):
+    import sys
+    import io
+    old_stdout = sys.stdout
+    redirected_output = sys.stdout = io.StringIO()
+    error = None
+    try:
+        exec(code, {})
+    except Exception as e:
+        error = str(e)
+    finally:
+        sys.stdout = old_stdout
+    return redirected_output.getvalue(), error
+
+# Login Logic
+if not st.session_state["authenticated"]:
+    st.title("🔐 Enterprise AI Suite Login")
+    username_input = st.text_input("Username")
+    password_input = st.text_input("Password", type="password")
+    if st.button("Login"):
+        if username_input == "admin" and password_input == "abc":
+            st.session_state["authenticated"] = True
+            st.session_state["username"] = username_input
+            st.rerun()
+        else:
+            st.error("Invalid credentials! Use admin / abc")
     st.stop()
 
-# ---------- LOAD / SAVE CHAT HISTORY ----------
-def load_all_chats():
-    if os.path.exists(CHATS_FILE):
-        with open(CHATS_FILE, "r", encoding="utf-8") as f:
-            return json.load(f)
-    return {}
-
-def save_all_chats(chats):
-    with open(CHATS_FILE, "w", encoding="utf-8") as f:
-        json.dump(chats, f, ensure_ascii=False, indent=2)
-
-if "all_chats" not in st.session_state:
-    st.session_state.all_chats = load_all_chats()
-
-if "current_chat_id" not in st.session_state:
-    if st.session_state.all_chats:
-        st.session_state.current_chat_id = list(st.session_state.all_chats.keys())[-1]
-    else:
-        new_id = str(uuid.uuid4())
-        st.session_state.all_chats[new_id] = {"title": "New Chat", "messages": []}
-        st.session_state.current_chat_id = new_id
-
-# ---------- SIDEBAR ----------
-st.sidebar.title("🤖 My AI Assistant")
-
-if st.sidebar.button("➕ New Chat", use_container_width=True):
-    new_id = str(uuid.uuid4())
-    st.session_state.all_chats[new_id] = {"title": "New Chat", "messages": []}
-    st.session_state.current_chat_id = new_id
-    save_all_chats(st.session_state.all_chats)
+# Sidebar
+st.sidebar.title(f"👤 User: {st.session_state['username']}")
+if st.sidebar.button("Logout"):
+    st.session_state["authenticated"] = False
     st.rerun()
 
 st.sidebar.markdown("---")
-st.sidebar.caption("Chat History")
+target_language = st.sidebar.selectbox("Response Language", ["English", "Hindi", "Hinglish", "Marathi"])
+uploaded_doc = st.sidebar.file_uploader("Upload Context Document (.txt, .md)", type=["txt", "md"])
 
-for chat_id in reversed(list(st.session_state.all_chats.keys())):
-    title = st.session_state.all_chats[chat_id]["title"]
-    is_active = chat_id == st.session_state.current_chat_id
-    label = f"👉 {title}" if is_active else f"💬 {title}"
-    if st.sidebar.button(label, key=f"select_{chat_id}", use_container_width=True):
-        st.session_state.current_chat_id = chat_id
-        st.rerun()
+doc_text = ""
+if uploaded_doc is not None:
+    doc_text = uploaded_doc.read().decode("utf-8")
+    st.sidebar.success("Document attached!")
 
-# ---------- MAIN CHAT AREA ----------
-current_chat = st.session_state.all_chats[st.session_state.current_chat_id]
+# Main App
+st.title("🤖 Enterprise AI Suite")
 
-st.title("My AI Assistant")
-st.caption(f"Cloud-powered by Groq — model: {MODEL_NAME}")
+chat_col, artifact_col = st.columns([2, 1])
 
-for msg in current_chat["messages"]:
-    with st.chat_message(msg["role"]):
-        st.markdown(msg["content"])
+with chat_col:
+    st.markdown("### 💬 Executive Assistant Chat")
+    for idx, message in enumerate(st.session_state.messages):
+        with st.chat_message(message["role"]):
+            st.markdown(message["content"])
 
-user_input = st.chat_input("Message your AI assistant...")
+    prompt = st.chat_input("Ask structured questions or request python code...")
 
-if user_input:
-    current_chat["messages"].append({"role": "user", "content": user_input})
-    with st.chat_message("user"):
-        st.markdown(user_input)
+    if prompt:
+        st.session_state.query_count += 1
+        st.session_state.messages.append({"role": "user", "content": prompt})
+        
+        with st.chat_message("user"):
+            st.markdown(prompt)
 
-    if current_chat["title"] == "New Chat":
-        current_chat["title"] = user_input[:30] + ("..." if len(user_input) > 30 else "")
+        with st.chat_message("assistant"):
+            try:
+                llm = ChatGoogleGenerativeAI(
+                    model="gemini-1.5-flash",
+                    google_api_key=GEMINI_API_KEY
+                )
+                
+                if doc_text:
+                    full_prompt = f"System: Provide response in {target_language}. Context: {doc_text}\nUser: {prompt}"
+                else:
+                    full_prompt = f"System: Provide response in {target_language}.\nUser: {prompt}"
 
-    with st.chat_message("assistant"):
-        placeholder = st.empty()
-        full_response = ""
+                response = llm.invoke(full_prompt)
+                full_response = response.content
+                
+                st.markdown(full_response)
+                st.session_state.messages.append({"role": "assistant", "content": full_response})
 
-        # Build message history for context
-        groq_messages = [{"role": "system", "content": SYSTEM_PROMPT}]
-        for m in current_chat["messages"][-10:]:
-            groq_messages.append({"role": m["role"], "content": m["content"]})
+                code_found = extract_python_code(full_response)
+                if code_found:
+                    st.session_state["active_artifact"] = code_found
+                    st.rerun()
 
-        try:
-            stream = client.chat.completions.create(
-                model=MODEL_NAME,
-                messages=groq_messages,
-                stream=True,
-            )
-            for chunk in stream:
-                delta = chunk.choices[0].delta.content or ""
-                full_response += delta
-                placeholder.markdown(full_response + "▌")
-            placeholder.markdown(full_response)
-        except Exception as e:
-            full_response = f"Error: {e}"
-            placeholder.error(full_response)
+            except Exception as e:
+                st.error(f"API Error: {e}")
 
-    current_chat["messages"].append({"role": "assistant", "content": full_response})
-    save_all_chats(st.session_state.all_chats)
+with artifact_col:
+    st.markdown("### 🛠️ Code Sandbox")
+    if "active_artifact" in st.session_state and st.session_state["active_artifact"]:
+        curr_code = st.session_state["active_artifact"]
+        edited_code = st.text_area("Interactive Code Editor", value=curr_code, height=300, key="editor_area")
+        
+        if st.button("▶️ Run Code", type="primary"):
+            output, error = execute_python_code(edited_code)
+            if error:
+                st.error(f"Error: {error}")
+            else:
+                st.success("Execution Output:")
+                st.code(output)
