@@ -94,10 +94,7 @@ with chat_col:
             st.session_state.query_count += 1
             st.session_state.messages.append({"role": "user", "content": prompt})
             
-            with st.chat_message("user"):
-                st.markdown(prompt)
-
-            with st.chat_message("assistant"):
+    
                 try:
                     llm = ChatGoogleGenerativeAI(
                         model="gemini-1.5-flash",
