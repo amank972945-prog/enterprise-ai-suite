@@ -3,18 +3,12 @@ import pandas as pd
 import datetime
 import re
 import os
-import PyPDF2
-from gTTS import gTTS
-import base64
 from langchain_google_genai import ChatGoogleGenerativeAI
 
-# Page Configuration
 st.set_page_config(page_title="Enterprise AI Suite Pro", page_icon="🤖", layout="wide")
 
-# API Key Retrieval
 GEMINI_API_KEY = st.secrets.get("GEMINI_API_KEY", os.environ.get("GEMINI_API_KEY", ""))
 
-# Initialize Session States
 if "authenticated" not in st.session_state:
     st.session_state["authenticated"] = False
 if "username" not in st.session_state:
@@ -24,7 +18,6 @@ if "messages" not in st.session_state:
 if "active_artifact" not in st.session_state:
     st.session_state["active_artifact"] = None
 
-# Helper Functions
 def extract_python_code(text):
     match = re.search(r"```python\n(.*?)\n```", text, re.DOTALL)
     return match.group(1) if match else None
@@ -42,20 +35,17 @@ def execute_python_code(code):
         sys.stdout = old_stdout
     return redirected_output.getvalue(), error
 
-def text_to_audio(text, lang_code='en'):
-    try:
-        clean_text = re.sub(r'[*_#`]', '', text)[:300]
-        tts = gTTS(text=clean_text, lang=lang_code, slow=False)
-        tts.save("response.mp3")
-        with open("response.mp3", "rb") as f:
-            data = f.read()
-            b64 = base64.b64encode(data).decode()
-            md = f'<audio autoplay controls><source src="data:audio/mp3;base64,{b64}" type="audio/mp3"></audio>'
-            st.markdown(md, unsafe_allow_html=True)
-    except Exception:
-        pass
+# Browser-native Text-to-Speech (Zero external package dependency)
+def speak_text(text):
+    clean_text = re.sub(r'[*_#`]', '', text).replace('"', "'").replace('\n', ' ')[:300]
+    js_code = f"""
+        <script>
+            var msg = new SpeechSynthesisUtterance("{clean_text}");
+            window.speechSynthesis.speak(msg);
+        </script>
+    """
+    st.components.v1.html(js_code, height=0)
 
-# Authentication Logic
 if not st.session_state["authenticated"]:
     st.title("🔐 Enterprise AI Suite Login")
     username_input = st.text_input("Username")
@@ -69,7 +59,6 @@ if not st.session_state["authenticated"]:
             st.error("Invalid credentials! Use admin / abc")
     st.stop()
 
-# Sidebar Layout
 st.sidebar.title(f"👤 User: {st.session_state['username']}")
 if st.sidebar.button("Logout"):
     st.session_state["authenticated"] = False
@@ -78,25 +67,17 @@ if st.sidebar.button("Logout"):
 st.sidebar.markdown("---")
 st.sidebar.subheader("⚙️ Settings")
 target_language = st.sidebar.selectbox("Response Language", ["English", "Hindi", "Hinglish", "Marathi", "Spanish", "French", "German"])
-lang_map = {"English": "en", "Hindi": "hi", "Hinglish": "hi", "Marathi": "mr", "Spanish": "es", "French": "fr", "German": "de"}
 enable_voice = st.sidebar.checkbox("🔊 Enable Voice Response", value=False)
 
 st.sidebar.markdown("---")
 st.sidebar.subheader("📄 Document Scanner")
-uploaded_file = st.sidebar.file_uploader("Upload PDF or TXT", type=["pdf", "txt", "md"])
+uploaded_file = st.sidebar.file_uploader("Upload Context Document (.txt, .md)", type=["txt", "md"])
 
 scanned_doc_text = ""
 if uploaded_file is not None:
-    if uploaded_file.name.endswith(".pdf"):
-        pdf_reader = PyPDF2.PdfReader(uploaded_file)
-        for page in pdf_reader.pages:
-            scanned_doc_text += page.extract_text() or ""
-        st.sidebar.success(f"PDF Scanned! ({len(pdf_reader.pages)} pages)")
-    else:
-        scanned_doc_text = uploaded_file.read().decode("utf-8")
-        st.sidebar.success("Text File Attached!")
+    scanned_doc_text = uploaded_file.read().decode("utf-8")
+    st.sidebar.success("Document Attached Successfully!")
 
-# Main UI Split (Chat + Code Sandbox)
 st.title("🤖 Enterprise AI Suite Pro")
 chat_col, artifact_col = st.columns([2, 1])
 
@@ -110,7 +91,7 @@ with chat_col:
 
     if prompt:
         if not GEMINI_API_KEY:
-            st.error("Gemini API Key missing! Set GEMINI_API_KEY in Streamlit Secrets.")
+            st.error("Gemini API Key missing! Set GEMINI_API_KEY in Streamlit Secrets.")[span_8](start_span)[span_8](end_span)
         else:
             st.session_state.messages.append({"role": "user", "content": prompt})
             with st.chat_message("user"):
@@ -130,7 +111,7 @@ with chat_col:
                     st.session_state.messages.append({"role": "assistant", "content": full_response})
 
                     if enable_voice:
-                        text_to_audio(full_response, lang_map.get(target_language, 'en'))
+                        speak_text(full_response)
 
                     code_found = extract_python_code(full_response)
                     if code_found:
