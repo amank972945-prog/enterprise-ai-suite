@@ -1,7 +1,5 @@
 streamlit
-groq
-langchain
-langchain-community
-chromadb
-pypdf
+pandas
+langchain-google-genai
+
 
