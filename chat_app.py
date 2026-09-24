@@ -2,6 +2,7 @@ import streamlit as st
 import pandas as pd
 import datetime
 import re
+import os
 from langchain_google_genai import ChatGoogleGenerativeAI
 
 # App Configuration
@@ -11,10 +12,8 @@ st.set_page_config(
     layout="wide"
 )
 
-# = Replace with your actual Gemini API Ke "AQ.Ab8RN6Jt4vly2R6HFn8Doxq02oyxR1JKqjttD7SIUz2c6gkIQ"
-Starts with AIzaSy...)
-GEMINI_API_KEY = "AQ.Ab8RN6Jt4vly2R6HFn8Doxq02oyxR1JKqjttD7SIUz2c6gkIQ
-
+# Fetch API Key cleanly from Streamlit Secrets or Environment
+GEMINI_API_KEY = st.secrets.get("GEMINI_API_KEY", os.environ.get("GEMINI_API_KEY", ""))
 
 # Session State Initialization
 if "authenticated" not in st.session_state:
@@ -60,7 +59,7 @@ if not st.session_state["authenticated"]:
             st.error("Invalid credentials! Use admin / abc")
     st.stop()
 
-# Sidebar
+# Sidebar Navigation
 st.sidebar.title(f"👤 User: {st.session_state['username']}")
 if st.sidebar.button("Logout"):
     st.session_state["authenticated"] = False
@@ -75,7 +74,7 @@ if uploaded_doc is not None:
     doc_text = uploaded_doc.read().decode("utf-8")
     st.sidebar.success("Document attached!")
 
-# Main App
+# Main App Header
 st.title("🤖 Enterprise AI Suite")
 
 chat_col, artifact_col = st.columns([2, 1])
@@ -89,37 +88,40 @@ with chat_col:
     prompt = st.chat_input("Ask structured questions or request python code...")
 
     if prompt:
-        st.session_state.query_count += 1
-        st.session_state.messages.append({"role": "user", "content": prompt})
-        
-        with st.chat_message("user"):
-            st.markdown(prompt)
+        if not GEMINI_API_KEY:
+            st.error("Gemini API Key missing! Please set GEMINI_API_KEY in Streamlit Secrets.")
+        else:
+            st.session_state.query_count += 1
+            st.session_state.messages.append({"role": "user", "content": prompt})
+            
+            with st.chat_message("user"):
+                st.markdown(prompt)
 
-        with st.chat_message("assistant"):
-            try:
-                llm = ChatGoogleGenerativeAI(
-                    model="gemini-1.5-flash",
-                    google_api_key=GEMINI_API_KEY
-                )
-                
-                if doc_text:
-                    full_prompt = f"System: Provide response in {target_language}. Context: {doc_text}\nUser: {prompt}"
-                else:
-                    full_prompt = f"System: Provide response in {target_language}.\nUser: {prompt}"
+            with st.chat_message("assistant"):
+                try:
+                    llm = ChatGoogleGenerativeAI(
+                        model="gemini-1.5-flash",
+                        google_api_key=GEMINI_API_KEY
+                    )
+                    
+                    if doc_text:
+                        full_prompt = f"System: Provide response in {target_language}. Context: {doc_text}\nUser: {prompt}"
+                    else:
+                        full_prompt = f"System: Provide response in {target_language}.\nUser: {prompt}"
 
-                response = llm.invoke(full_prompt)
-                full_response = response.content
-                
-                st.markdown(full_response)
-                st.session_state.messages.append({"role": "assistant", "content": full_response})
+                    response = llm.invoke(full_prompt)
+                    full_response = response.content
+                    
+                    st.markdown(full_response)
+                    st.session_state.messages.append({"role": "assistant", "content": full_response})
 
-                code_found = extract_python_code(full_response)
-                if code_found:
-                    st.session_state["active_artifact"] = code_found
-                    st.rerun()
+                    code_found = extract_python_code(full_response)
+                    if code_found:
+                        st.session_state["active_artifact"] = code_found
+                        st.rerun()
 
-            except Exception as e:
-                st.error(f"API Error: {e}")
+                except Exception as e:
+                    st.error(f"API Error: {e}")
 
 with artifact_col:
     st.markdown("### 🛠️ Code Sandbox")
