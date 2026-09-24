@@ -12,7 +12,8 @@ st.set_page_config(
 )
 
 # Replace with your actual Gemini API Key (Starts with AIzaSy...)
-GEMINI_API_KEY = "AQ.Ab8RN6Jt4vly2R6HFm88oqxO2oyxR12XqjithD75IuZZc8gkIQ
+GEMINI_API_KEY = "AQ.Ab8RN6Jt4vly2R6HFn8Doxq02oyxR1JKqjttD7SIUz2c6gkIQ"
+
 
 # Session State Initialization
 if "authenticated" not in st.session_state:
