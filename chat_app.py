@@ -11,7 +11,8 @@ st.set_page_config(
     layout="wide"
 )
 
-# Replace with your actual Gemini API Key (Starts with AIzaSy...)
+# Replace with your actual  GEMINI_API_KEY = "AQ.Ab8RN6Jt4vly2R6HFn8Doxq02oyxR1JKqjttD7SIUz2c6gkIQ"
+Starts with AIzaSy...)
 GEMINI_API_KEY = "AQ.Ab8RN6Jt4vly2R6HFn8Doxq02oyxR1JKqjttD7SIUz2c6gkIQ"
 
 
