@@ -9,7 +9,7 @@ from pypdf import PdfReader
 # Page Configuration
 st.set_page_config(page_title="Enterprise AI Suite Pro", page_icon="🤖", layout="wide")
 
-# API Key Handling
+# API Key Retrieval
 GEMINI_API_KEY = st.secrets.get("GEMINI_API_KEY", os.environ.get("GEMINI_API_KEY", ""))
 
 # Initialize Session States
@@ -39,7 +39,7 @@ def execute_python_code(code):
         sys.stdout = old_stdout
     return redirected_output.getvalue(), exec_error
 
-# Speech Output (Browser API - Zero Dependency)
+# Speech Output (Browser Voice API)
 def speak_text(text):
     clean_text = re.sub(r'[*_#`]', '', text).replace('"', "'").replace('\n', ' ')[:400]
     js_code = f"""
@@ -96,7 +96,7 @@ if uploaded_file is not None:
     except Exception as e:
         st.sidebar.error(f"File Read Error: {e}")
 
-# Main Chat + Sandbox UI
+# Main Chat + Live Code Sandbox
 st.title("🤖 Enterprise AI Suite Pro")
 chat_col, artifact_col = st.columns([2, 1])
 
@@ -110,7 +110,7 @@ with chat_col:
 
     if prompt:
         if not GEMINI_API_KEY:
-            st.error("Gemini API Key missing! Set GEMINI_API_KEY in Streamlit Secrets.")
+            st.error("Gemini API Key missing! Set GEMINI_API_KEY in Streamlit Secrets.")[span_4](start_span)[span_4](end_span)
         else:
             st.session_state.messages.append({"role": "user", "content": prompt})
             with st.chat_message("user"):
@@ -119,7 +119,12 @@ with chat_col:
             with st.chat_message("assistant"):
                 try:
                     genai.configure(api_key=GEMINI_API_KEY.strip())
-                    model = genai.GenerativeModel('gemini-1.5-flash')
+                    
+                    # Updated supported model names list to prevent 404 errors
+                    try:
+                        model = genai.GenerativeModel('gemini-2.0-flash')
+                    except Exception:
+                        model = genai.GenerativeModel('gemini-2.5-flash')
 
                     full_prompt = f"System Instruction: Respond in {target_language}.\n"
                     if scanned_doc_text:
@@ -141,7 +146,7 @@ with chat_col:
                         st.rerun()
 
                 except Exception as e:
-                    st.error(f"API Connection Error: {e}")
+                    st.error(f"API Error: {e}")
 
 with artifact_col:
     st.markdown("### 🛠️ Live Code Sandbox")
