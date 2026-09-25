@@ -110,7 +110,7 @@ with chat_col:
 
     if prompt:
         if not GEMINI_API_KEY:
-            st.error("Gemini API Key missing! Set GEMINI_API_KEY in Streamlit Secrets.")[span_4](start_span)[span_4](end_span)
+            st.error("Gemini API Key missing! Set GEMINI_API_KEY in Streamlit Secrets.")
         else:
             st.session_state.messages.append({"role": "user", "content": prompt})
             with st.chat_message("user"):
@@ -120,11 +120,19 @@ with chat_col:
                 try:
                     genai.configure(api_key=GEMINI_API_KEY.strip())
                     
-                    # Updated supported model names list to prevent 404 errors
-                    try:
-                        model = genai.GenerativeModel('gemini-2.0-flash')
-                    except Exception:
-                        model = genai.GenerativeModel('gemini-2.5-flash')
+                    # Auto-fallback mechanism using models suggested by Google
+                    model_names = ['gemini-3.8-flash', 'gemini-1.5-flash', 'gemini-2.0-flash']
+                    model = None
+                    
+                    for m_name in model_names:
+                        try:
+                            model = genai.GenerativeModel(m_name)
+                            break
+                        except Exception:
+                            continue
+
+                    if not model:
+                        model = genai.GenerativeModel('gemini-3.8-flash')
 
                     full_prompt = f"System Instruction: Respond in {target_language}.\n"
                     if scanned_doc_text:
