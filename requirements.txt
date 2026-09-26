@@ -1,8 +1,10 @@
 streamlit
-google-generativeai
+groq
+scikit-learn
 pypdf
-gTTS
-bcrypt
+python-docx
+pandas
+streamlit-mic-recorder
 
 
 
