@@ -2,17 +2,12 @@ import streamlit as st
 import json
 import os
 import uuid
-import base64
-import subprocess
 import tempfile
+import time
+import google.generativeai as genai
+from supabase import create_client
 
-from groq import Groq
-
-CHAT_MODEL = "llama-3.3-70b-versatile"
-VISION_MODEL = "meta-llama/llama-4-scout-17b-16e-instruct"
-WHISPER_MODEL = "whisper-large-v3-turbo"
-CHATS_FILE = "chat_history.json"
-MAX_TOKENS = 2048
+MODEL_NAME = "gemini-1.5-flash"
 FREE_DAILY_MESSAGE_LIMIT = 15
 UPGRADE_LINK = "https://rzp.io/l/your-payment-link-here"
 
@@ -97,10 +92,37 @@ if not st.session_state.logged_in:
 name = st.session_state.get("user_name", "User")
 
 try:
-    client = Groq(api_key=st.secrets["GROQ_API_KEY"])
+    genai.configure(api_key=st.secrets["GEMINI_API_KEY"])
+    model = genai.GenerativeModel(MODEL_NAME)
 except Exception:
-    st.error("Groq API key not found. Add GROQ_API_KEY in Secrets, then Reboot.")
+    st.error("Gemini API key not found. Add GEMINI_API_KEY in Secrets, then Reboot.")
     st.stop()
+
+DB_AVAILABLE = False
+try:
+    supabase = create_client(st.secrets["SUPABASE_URL"], st.secrets["SUPABASE_KEY"])
+    DB_AVAILABLE = True
+except Exception:
+    st.sidebar.warning("Persistent history unavailable — check SUPABASE_URL/SUPABASE_KEY in Secrets.")
+
+def load_all_chats():
+    if DB_AVAILABLE:
+        try:
+            res = supabase.table("user_chats").select("data").eq("username", name).execute()
+            if res.data:
+                return res.data[0]["data"]
+            return {}
+        except Exception as e:
+            st.sidebar.warning(f"Could not load history: {e}")
+            return {}
+    return {}
+
+def save_all_chats(chats):
+    if DB_AVAILABLE:
+        try:
+            supabase.table("user_chats").upsert({"username": name, "data": chats}).execute()
+        except Exception as e:
+            st.sidebar.warning(f"Could not save history: {e}")
 
 try:
     IS_PREMIUM_ACCOUNT = st.secrets.get("IS_PREMIUM", "false").lower() == "true"
@@ -109,16 +131,6 @@ except Exception:
 
 if "message_count" not in st.session_state:
     st.session_state.message_count = 0
-
-def load_all_chats():
-    if os.path.exists(CHATS_FILE):
-        with open(CHATS_FILE, "r", encoding="utf-8") as f:
-            return json.load(f)
-    return {}
-
-def save_all_chats(chats):
-    with open(CHATS_FILE, "w", encoding="utf-8") as f:
-        json.dump(chats, f, ensure_ascii=False, indent=2)
 
 if "all_chats" not in st.session_state:
     st.session_state.all_chats = load_all_chats()
@@ -131,8 +143,6 @@ if "current_chat_id" not in st.session_state:
         st.session_state.current_chat_id = new_id
 if "doc_chunks" not in st.session_state:
     st.session_state.doc_chunks = []
-if "pending_context" not in st.session_state:
-    st.session_state.pending_context = ""
 
 with st.sidebar:
     badge_text = "👑 PREMIUM" if IS_PREMIUM_ACCOUNT else "✨ FREE PLAN"
@@ -175,16 +185,13 @@ with st.sidebar:
             <b>Free Plan</b><br>
             {remaining} messages left this session<br><br>
             <b>Premium unlocks:</b><br>
-            Unlimited messages, faster model, priority support
+            Unlimited messages, priority support
         </div>
         """, unsafe_allow_html=True)
         st.link_button("👑 Upgrade to Premium", UPGRADE_LINK, use_container_width=True)
     else:
         st.markdown("""
-        <div class="upgrade-box">
-            👑 <b>Premium Active</b><br>
-            Unlimited messages unlocked
-        </div>
+        <div class="upgrade-box">👑 <b>Premium Active</b><br>Unlimited messages unlocked</div>
         """, unsafe_allow_html=True)
 
 def extract_text_from_pdf(file_bytes):
@@ -223,50 +230,22 @@ def find_relevant_chunks(question, chunks, top_k=3):
     ranked = sorted(zip(chunks, scores), key=lambda x: x[1], reverse=True)
     return [c for c, s in ranked[:top_k]]
 
-def transcribe_audio_bytes(audio_bytes, filename="audio.wav"):
-    with tempfile.NamedTemporaryFile(delete=False, suffix=os.path.splitext(filename)[1] or ".wav") as tmp:
-        tmp.write(audio_bytes)
+def upload_to_gemini(file_bytes, suffix, mime_type):
+    with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp:
+        tmp.write(file_bytes)
         path = tmp.name
-    with open(path, "rb") as f:
-        result = client.audio.transcriptions.create(file=(filename, f.read()), model=WHISPER_MODEL)
+    gfile = genai.upload_file(path=path, mime_type=mime_type)
+    while gfile.state.name == "PROCESSING":
+        time.sleep(2)
+        gfile = genai.get_file(gfile.name)
     os.unlink(path)
-    return result.text
-
-def extract_audio_from_video(video_bytes, filename="video.mp4"):
-    with tempfile.NamedTemporaryFile(delete=False, suffix=os.path.splitext(filename)[1] or ".mp4") as tmp_vid:
-        tmp_vid.write(video_bytes)
-        vid_path = tmp_vid.name
-    audio_path = vid_path + ".wav"
-    subprocess.run(
-        ["ffmpeg", "-y", "-i", vid_path, "-vn", "-acodec", "pcm_s16le", "-ar", "16000", audio_path],
-        capture_output=True, timeout=120
-    )
-    os.unlink(vid_path)
-    if os.path.exists(audio_path):
-        with open(audio_path, "rb") as f:
-            data = f.read()
-        os.unlink(audio_path)
-        return data
-    return None
-
-def analyze_image(image_bytes, question):
-    b64 = base64.b64encode(image_bytes).decode("utf-8")
-    response = client.chat.completions.create(
-        model=VISION_MODEL,
-        messages=[{
-            "role": "user",
-            "content": [
-                {"type": "text", "text": question or "Describe this image in detail."},
-                {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{b64}"}},
-            ],
-        }],
-        max_tokens=MAX_TOKENS,
-    )
-    return response.choices[0].message.content
+    if gfile.state.name == "FAILED":
+        raise Exception("Gemini could not process this file.")
+    return gfile
 
 current_chat = st.session_state.all_chats[st.session_state.current_chat_id]
 st.title("✨ Premium AI Assistant")
-st.caption(f"Fast answers — {CHAT_MODEL}")
+st.caption(f"Powered by Google Gemini — {MODEL_NAME}")
 
 for msg in current_chat["messages"]:
     with st.chat_message(msg["role"]):
@@ -287,52 +266,33 @@ with st.popover("➕ Add", disabled=limit_reached):
     doc_file = st.file_uploader("📄 Upload Document (PDF/DOCX)", type=["pdf", "docx"], key="doc_up")
     if doc_file:
         raw = doc_file.getvalue()
-        text = None
-        if doc_file.name.endswith(".pdf"):
-            text = extract_text_from_pdf(raw)
-        elif doc_file.name.endswith(".docx"):
-            text = extract_text_from_docx(raw)
+        text = extract_text_from_pdf(raw) if doc_file.name.endswith(".pdf") else extract_text_from_docx(raw)
         if text:
             st.session_state.doc_chunks = chunk_text(text)
-            st.success(f"Document indexed ({len(st.session_state.doc_chunks)} sections). Ask questions about it below.")
+            st.success(f"Document indexed ({len(st.session_state.doc_chunks)} sections). Ask questions below.")
         else:
             st.warning("Could not read this document — required library missing.")
 
-    video_file = st.file_uploader("🎬 Upload Video (audio will be transcribed)", type=["mp4", "mov", "mkv"], key="vid_up")
+    video_file = st.file_uploader("🎬 Upload Video", type=["mp4", "mov", "mkv"], key="vid_up")
     if video_file:
-        with st.spinner("Extracting and transcribing audio from video..."):
-            audio_data = extract_audio_from_video(video_file.getvalue(), video_file.name)
-            if audio_data:
-                try:
-                    transcript = transcribe_audio_bytes(audio_data)
-                    st.session_state.pending_context = f"[Video transcript]: {transcript}"
-                    st.success("Video transcribed! Ask your question below.")
-                except Exception as e:
-                    st.warning(f"Transcription failed: {e}")
-            else:
-                st.warning("Could not extract audio (ffmpeg missing — add 'ffmpeg' to packages.txt).")
+        st.session_state["_pending_video"] = (video_file.getvalue(), video_file.name)
+        st.success("Video attached — ask your question below.")
 
     if MIC_AVAILABLE:
         audio = mic_recorder(start_prompt="🎤 Speak", stop_prompt="⏹ Stop", key="mic_popover")
         if audio:
-            with st.spinner("Transcribing..."):
-                try:
-                    text = transcribe_audio_bytes(audio["bytes"])
-                    st.session_state["_pending_voice_text"] = text
-                    st.info(f"You said: {text}")
-                except Exception as e:
-                    st.warning(f"Voice transcription failed: {e}")
+            st.session_state["_pending_audio"] = audio["bytes"]
+            st.success("Voice recorded — ask your question below, or just press send.")
     else:
         st.caption("🎤 Voice input needs streamlit-mic-recorder in requirements.txt")
 
-text_input = st.chat_input("Ask anything...", disabled=limit_reached)
-voice_text = st.session_state.pop("_pending_voice_text", None)
-user_input = text_input or voice_text
+user_input = st.chat_input("Ask anything...", disabled=limit_reached)
 
 if user_input and not limit_reached:
     st.session_state.message_count += 1
     pending_image = st.session_state.pop("_pending_image", None)
-    extra_context = st.session_state.pop("pending_context", "")
+    pending_video = st.session_state.pop("_pending_video", None)
+    pending_audio = st.session_state.pop("_pending_audio", None)
 
     current_chat["messages"].append({"role": "user", "content": user_input})
     with st.chat_message("user"):
@@ -346,40 +306,41 @@ if user_input and not limit_reached:
         full_response = ""
 
         try:
-            if pending_image:
-                full_response = analyze_image(pending_image, user_input)
-                placeholder.markdown(full_response)
+            system_instruction = "You are a premium AI assistant. Give fast, clear, thorough answers."
+            if code_mode:
+                system_instruction += " Focus on code: give correct, well-commented code with brief explanations."
+            if language != "Auto-detect":
+                system_instruction += f" Always reply in {language}."
             else:
-                system_prompt = "You are a premium AI assistant. Give fast, clear, thorough answers."
-                if code_mode:
-                    system_prompt += " Focus on code: give correct, well-commented code with brief explanations."
-                if language != "Auto-detect":
-                    system_prompt += f" Always reply in {language}."
-                else:
-                    system_prompt += " Reply in the same language the user writes in."
+                system_instruction += " Reply in the same language the user writes in."
 
-                doc_context = ""
-                if st.session_state.doc_chunks:
-                    relevant = find_relevant_chunks(user_input, st.session_state.doc_chunks)
-                    doc_context = "\n\nRelevant document excerpts:\n" + "\n---\n".join(relevant)
+            content_parts = [system_instruction, user_input]
 
-                full_user_message = user_input + doc_context
-                if extra_context:
-                    full_user_message += f"\n\n{extra_context}"
+            if pending_image:
+                from PIL import Image
+                import io
+                content_parts.append(Image.open(io.BytesIO(pending_image)))
 
-                groq_messages = [{"role": "system", "content": system_prompt}]
-                for m in current_chat["messages"][-10:-1]:
-                    groq_messages.append({"role": m["role"], "content": m["content"]})
-                groq_messages.append({"role": "user", "content": full_user_message})
+            if pending_video:
+                with st.spinner("Processing video (this can take a minute)..."):
+                    gfile = upload_to_gemini(pending_video[0], os.path.splitext(pending_video[1])[1] or ".mp4", "video/mp4")
+                    content_parts.append(gfile)
 
-                stream = client.chat.completions.create(
-                    model=CHAT_MODEL, messages=groq_messages, stream=True, max_tokens=MAX_TOKENS,
-                )
-                for chunk in stream:
-                    delta = chunk.choices[0].delta.content or ""
-                    full_response += delta
+            if pending_audio:
+                with st.spinner("Processing voice..."):
+                    gfile = upload_to_gemini(pending_audio, ".wav", "audio/wav")
+                    content_parts.append(gfile)
+
+            if st.session_state.doc_chunks:
+                relevant = find_relevant_chunks(user_input, st.session_state.doc_chunks)
+                content_parts.append("\n\nRelevant document excerpts:\n" + "\n---\n".join(relevant))
+
+            response = model.generate_content(content_parts, stream=True)
+            for chunk in response:
+                if chunk.text:
+                    full_response += chunk.text
                     placeholder.markdown(full_response + "▌")
-                placeholder.markdown(full_response)
+            placeholder.markdown(full_response)
 
         except Exception as e:
             full_response = f"Error: {e}"
