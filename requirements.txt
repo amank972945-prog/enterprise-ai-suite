@@ -1,10 +1,12 @@
 streamlit
-groq
+google-generativeai
 scikit-learn
 pypdf
 python-docx
 pandas
 streamlit-mic-recorder
+pillow
+supabase
 
 
 
