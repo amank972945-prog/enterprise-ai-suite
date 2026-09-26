@@ -1,6 +1,10 @@
 streamlit
 google-generativeai
 pypdf
+gTTS
+bcrypt
+razorpay
+
 
 
 
