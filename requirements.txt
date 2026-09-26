@@ -3,7 +3,7 @@ google-generativeai
 pypdf
 gTTS
 bcrypt
-razorpay
+
 
 
 
